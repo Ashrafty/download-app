@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter/return_code.dart';
 import 'package:flutter/material.dart';
@@ -31,7 +32,12 @@ class _DownloadPageState extends State<DownloadPage> {
 
   void _initDownloadPath() async {
     if (Platform.isAndroid) {
-      _downloadPath = '/storage/emulated/0/Download';
+      if (await _requestPermission(Permission.storage) &&
+          await _requestPermission(Permission.manageExternalStorage)) {
+        _downloadPath = '/storage/emulated/0/Download';
+      } else {
+        _showSnackBar('Storage permission denied');
+      }
     } else if (Platform.isWindows) {
       final directory = await getDownloadsDirectory();
       _downloadPath = directory?.path ?? '';
@@ -206,54 +212,15 @@ class _DownloadPageState extends State<DownloadPage> {
       return;
     }
     if (Platform.isAndroid) {
-      if (await _requestStoragePermission()) {
+      if (await _requestPermission(Permission.storage) &&
+          await _requestPermission(Permission.manageExternalStorage)) {
         _enqueueDownload(url, quality);
       } else {
-        _showStoragePermissionDialog();
+        _showSnackBar('Storage permission denied');
       }
     } else {
       _enqueueDownload(url, quality);
     }
-  }
-
-  Future<bool> _requestStoragePermission() async {
-    var status = await Permission.storage.status;
-    if (status.isGranted) {
-      return true;
-    } else if (status.isDenied) {
-      status = await Permission.storage.request();
-      return status.isGranted;
-    } else if (status.isPermanentlyDenied) {
-      return false;
-    }
-    return false;
-  }
-
-  void _showStoragePermissionDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Storage Permission Required'),
-          content: Text('This app needs access to your storage to download files. Please grant storage permission in the app settings.'),
-          actions: <Widget>[
-            TextButton(
-              child: Text('Cancel'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              child: Text('Open Settings'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                openAppSettings();
-              },
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void _enqueueDownload(String url, String quality) {
@@ -352,8 +319,8 @@ class _DownloadPageState extends State<DownloadPage> {
       String tempFilePath = path.join(_downloadPath, '${sanitizedTitle}_temp.$fileExtension');
       String finalFilePath = path.join(_downloadPath, fileName);
       task.fileName = fileName;
-      task.cancelToken = CancelToken();
 
+      task.cancelToken = CancelToken();
       Stream<List<int>> stream = yt.videos.streamsClient.get(streamInfo);
       File tempFile = File(tempFilePath);
       IOSink sink = tempFile.openWrite();
@@ -402,6 +369,15 @@ class _DownloadPageState extends State<DownloadPage> {
       showNotification('Download Complete', fileName);
     } catch (e) {
       throw Exception('Error downloading YouTube video: ${e.toString()}');
+    }
+  }
+
+  Future<bool> _requestPermission(Permission permission) async {
+    if (await permission.isGranted) {
+      return true;
+    } else {
+      var result = await permission.request();
+      return result.isGranted;
     }
   }
 
